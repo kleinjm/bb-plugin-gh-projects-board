@@ -95,6 +95,7 @@ query($login: String!, $number: Int!, $first: Int!, $cursor: String) {
             ... on DraftIssue {
               id title createdAt updatedAt
               creator { login }
+              assignees(first: 10) { nodes { login avatarUrl } }
             }
           }
         }
