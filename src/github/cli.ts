@@ -4,6 +4,7 @@
 // session, the same way bb's own GitHub integrations do. That keeps credential
 // handling in one audited place and means revoking `gh auth` revokes us too.
 import { execFile } from "node:child_process";
+import { readFile, stat } from "node:fs/promises";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -92,6 +93,85 @@ function classify(error: unknown): GhError {
 export interface GhRunOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
+  /**
+   * Path to a file holding a GitHub token, injected as GH_TOKEN for this call.
+   *
+   * For servers whose environment carries a different token than the one you
+   * want the board to use — a bb server started before you re-authenticated,
+   * or one running as a different user than the one who ran `gh auth login`.
+   * The token is read at call time and never persisted by the plugin.
+   */
+  tokenFile?: string | null;
+}
+
+/** Cached token file contents, invalidated when the file changes. */
+const tokenCache = new Map<string, { mtimeMs: number; size: number; token: string }>();
+
+/** A token file that is missing or empty is a configuration error worth naming. */
+export class GhTokenFileError extends GhError {
+  constructor(path: string, detail: string) {
+    super(`Could not read the configured token file ${path}: ${detail}`, "", null);
+    this.name = "GhTokenFileError";
+  }
+}
+
+async function readTokenFile(path: string): Promise<string> {
+  let info: Awaited<ReturnType<typeof stat>>;
+  try {
+    info = await stat(path);
+  } catch (error) {
+    throw new GhTokenFileError(
+      path,
+      (error as NodeJS.ErrnoException).code === "ENOENT"
+        ? "no such file"
+        : String((error as Error).message),
+    );
+  }
+
+  const cached = tokenCache.get(path);
+  if (
+    cached !== undefined &&
+    cached.mtimeMs === info.mtimeMs &&
+    cached.size === info.size
+  ) {
+    return cached.token;
+  }
+
+  let contents: string;
+  try {
+    contents = await readFile(path, "utf8");
+  } catch (error) {
+    throw new GhTokenFileError(path, String((error as Error).message));
+  }
+
+  // A token file is one line; tolerate a trailing newline and stray whitespace.
+  const token = contents.trim();
+  if (token === "") throw new GhTokenFileError(path, "the file is empty");
+  if (/\s/.test(token)) {
+    throw new GhTokenFileError(
+      path,
+      "the file holds more than one whitespace-separated value; it should contain only the token",
+    );
+  }
+
+  tokenCache.set(path, { mtimeMs: info.mtimeMs, size: info.size, token });
+  return token;
+}
+
+/**
+ * Build the child environment for a `gh` call.
+ *
+ * Both GH_TOKEN and GITHUB_TOKEN are set: `gh` prefers GH_TOKEN, but clearing
+ * only one would leave the other able to win in some gh versions.
+ */
+async function childEnv(
+  tokenFile: string | null | undefined,
+): Promise<NodeJS.ProcessEnv> {
+  if (tokenFile === undefined || tokenFile === null || tokenFile.trim() === "") {
+    return process.env;
+  }
+  const token = await readTokenFile(tokenFile.trim());
+  return { ...process.env, GH_TOKEN: token, GITHUB_TOKEN: token };
 }
 
 /** Run `gh` with the given argv and return stdout. */
@@ -104,9 +184,9 @@ export async function runGh(
       maxBuffer: MAX_BUFFER_BYTES,
       timeout: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       signal: options.signal,
-      // Keep the child's environment: it carries GH_TOKEN/GITHUB_TOKEN and the
-      // gh config path that the user's session depends on.
-      env: process.env,
+      // Inherit the environment — it carries the gh config path the user's
+      // session depends on — with the configured token file layered over it.
+      env: await childEnv(options.tokenFile),
     });
     return stdout;
   } catch (error) {

@@ -40,6 +40,30 @@ scope talking. A classic token with `read:project` is the reliable fix; add
 `repo` if your issues are in private repositories. Organizations that enforce
 SSO also need the token authorized against the org.
 
+### When the server has the wrong token
+
+`gh` prefers `GH_TOKEN`/`GITHUB_TOKEN` from its environment over anything
+`gh auth login` stored. A BB server that inherited a token at startup — one
+started before you re-authenticated, or running as a different user than the
+one who signed in — will keep using it, and restarting the server is not
+always convenient.
+
+The optional **Token file** setting points at a file containing a token to use
+instead:
+
+```bash
+bb plugin config gh-projects-board set tokenFile /path/to/token
+```
+
+The file holds the token and nothing else. It is read at call time and cached
+only until its contents change; the plugin never copies the token into its own
+storage, and `bb gh-projects-board status` prints the path but never the value.
+
+This is a deliberate trade-off: it reintroduces a credential on disk that the
+plugin reads, which the default `gh`-session design avoids. Prefer fixing the
+server's environment when you can, and keep the file readable only by the
+account running BB (`chmod 600`).
+
 ## Development
 
 ```bash
