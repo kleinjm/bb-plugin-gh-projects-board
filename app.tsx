@@ -37,7 +37,7 @@ function labelStyle(color: string | null): React.CSSProperties | undefined {
   };
 }
 
-function useBoard(filter: string, groupBy: string | null) {
+function useBoard(filter: string | null, groupBy: string | null) {
   const rpc = useRpc<typeof rpcContract>();
   const [state, setState] = useState<BoardState | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +51,10 @@ function useBoard(filter: string, groupBy: string | null) {
       requestId.current = id;
       setBusy(true);
       const call = refresh ? "board_refresh" : "board_get";
-      rpc.call(call, { filter, groupBy }).then(
+      // Omit the filter entirely until one is chosen: an empty string is a
+      // valid filter meaning "everything", so sending it would suppress the
+      // configured default instead of asking for it.
+      rpc.call(call, { ...(filter === null ? {} : { filter }), groupBy }).then(
         (result) => {
           if (requestId.current !== id) return;
           setState(result);
@@ -207,7 +210,7 @@ type QuickFilter = "mine" | "all" | "custom";
 
 function BoardPage() {
   const [filterInput, setFilterInput] = useState<string | null>(null);
-  const [filter, setFilter] = useState("");
+  const [filter, setFilter] = useState<string | null>(null);
   const [groupBy, setGroupBy] = useState<string | null>(null);
   // My Tasks is what the page opens on; the server supplies its query.
   const [quick, setQuick] = useState<QuickFilter>("mine");
@@ -219,6 +222,8 @@ function BoardPage() {
   // an empty box.
   useEffect(() => {
     if (myTasksFilter === null && state !== null) {
+      // state.filter is the query the server actually applied, which on the
+      // first call is the configured default.
       setMyTasksFilter(state.filter);
       setFilterInput(state.filter);
       setFilter(state.filter);
@@ -226,9 +231,11 @@ function BoardPage() {
   }, [myTasksFilter, state]);
 
   const selectQuick = (next: Exclude<QuickFilter, "custom">) => {
-    const query = next === "mine" ? (myTasksFilter ?? "") : "";
+    // Before the first response myTasksFilter is unknown; null asks the server
+    // for its configured default rather than falling back to "everything".
+    const query = next === "mine" ? myTasksFilter : "";
     setQuick(next);
-    setFilterInput(query);
+    setFilterInput(query ?? "");
     setFilter(query);
   };
 
