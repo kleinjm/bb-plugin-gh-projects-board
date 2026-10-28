@@ -5,7 +5,7 @@
 // the `repo #number` reference, title, labels and assignees.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
-import { definePluginApp, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
+import { UrlLink, definePluginApp, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import type { BoardColumnView, BoardItemView, BoardState, rpcContract } from "./server";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -81,26 +81,9 @@ function useBoard(filter: string | null, groupBy: string | null) {
   return { state, error, busy, reload: load };
 }
 
-function Card({ item }: { item: BoardItemView }) {
-  const open = () => {
-    if (item.url !== null) window.open(item.url, "_blank", "noopener");
-  };
+function CardBody({ item }: { item: BoardItemView }) {
   return (
-    <li
-      className={cn(
-        "group rounded-lg border border-border bg-card px-3 py-2.5",
-        item.url !== null && "cursor-pointer hover:border-muted-foreground/40",
-      )}
-      onClick={open}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          open();
-        }
-      }}
-      tabIndex={item.url === null ? -1 : 0}
-      role={item.url === null ? undefined : "link"}
-    >
+    <>
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <Icon
           name={item.kind === "PullRequest" ? "GitBranch" : "Info"}
@@ -148,6 +131,30 @@ function Card({ item }: { item: BoardItemView }) {
             ),
           )}
         </div>
+      )}
+    </>
+  );
+}
+
+function Card({ item }: { item: BoardItemView }) {
+  const className = cn(
+    "block rounded-lg border border-border bg-card px-3 py-2.5 text-left",
+    item.url !== null &&
+      "cursor-pointer no-underline hover:border-muted-foreground/40",
+  );
+  // UrlLink hands ordinary activation to the host, so a card opens in BB's
+  // own browser; it stays a real anchor, so cmd-click, middle-click and
+  // "copy link" keep working.
+  return (
+    <li>
+      {item.url === null ? (
+        <div className={className}>
+          <CardBody item={item} />
+        </div>
+      ) : (
+        <UrlLink href={item.url} className={className}>
+          <CardBody item={item} />
+        </UrlLink>
       )}
     </li>
   );
@@ -338,14 +345,12 @@ function BoardPage() {
         </div>
         {state?.board == null ? null : (
           <p className="mt-2 text-xs text-muted-foreground">
-            <a
+            <UrlLink
               href={state.board.url}
-              target="_blank"
-              rel="noopener noreferrer"
               className="underline underline-offset-2"
             >
               {state.board.title}
-            </a>{" "}
+            </UrlLink>{" "}
             · {state.board.total} of {state.itemCount} items · grouped by{" "}
             {state.board.groupedBy ?? "nothing"}
             {fetchedAt === null ? null : ` · read ${fetchedAt}`}
