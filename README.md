@@ -1,5 +1,7 @@
 # GitHub Projects Board
 
+[![CI](https://github.com/kleinjm/bb-plugin-gh-projects-board/actions/workflows/ci.yml/badge.svg)](https://github.com/kleinjm/bb-plugin-gh-projects-board/actions/workflows/ci.yml)
+
 Your GitHub Projects v2 board inside BB: real columns from the project's own
 Status field, in the project's own order, with the filters your saved views
 already use.
