@@ -87,15 +87,26 @@ function CardBody({ item }: { item: BoardItemView }) {
     <>
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <Icon
-          name={item.kind === "PullRequest" ? "GitBranch" : "Info"}
+          name={
+            item.kind === "PullRequest"
+              ? "GitBranch"
+              : item.kind === "DraftIssue"
+                ? "FileText"
+                : "Info"
+          }
           className={cn(
             "size-3.5 shrink-0",
-            item.state === "CLOSED" || item.state === "MERGED"
-              ? "text-purple-500"
-              : "text-green-600",
+            item.kind === "DraftIssue"
+              ? "text-muted-foreground"
+              : item.state === "CLOSED" || item.state === "MERGED"
+                ? "text-purple-500"
+                : "text-green-600",
           )}
         />
-        <span className="truncate font-mono">{item.reference ?? item.kind}</span>
+        <span className="truncate font-mono">
+          {/* A draft lives only in the project, so it has no repo or number. */}
+          {item.reference ?? (item.kind === "DraftIssue" ? "Draft" : item.kind)}
+        </span>
       </div>
       <p className="mt-1 text-sm leading-snug text-foreground">{item.title}</p>
       {item.labels.length === 0 ? null : (
