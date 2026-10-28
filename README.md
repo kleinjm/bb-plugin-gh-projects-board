@@ -77,6 +77,12 @@ bb plugin dev             # rebuild and reload on save
 A standalone harness exercises the GraphQL layer without a running BB server:
 
 ```bash
+npm test                  # unit tests (node:test)
+```
+
+A standalone harness exercises the GraphQL layer without a running BB server:
+
+```bash
 npx tsx src/cli-check.ts <owner> <project-number> ["filter"]
 npx tsx src/cli-check.ts my-org 1 "assignee:@me -status:Done!"
 ```
@@ -89,6 +95,8 @@ npx tsx src/cli-check.ts my-org 1 "assignee:@me -status:Done!"
 | `src/github/queries.ts` | GraphQL documents, generated per owner kind |
 | `src/github/projects.ts` | Zod schemas, cursor pagination, item flattening |
 | `src/board.ts` | Column grouping and the filter parser |
+| `src/filter-contract.ts` | The omitted-vs-empty filter rule both sides share |
+| `test/` | Unit tests for the parser, grouping and filter contract |
 | `src/cli-check.ts` | Development harness |
 
 ## Notes and limits

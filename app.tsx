@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { filterPayload } from "./src/filter-contract";
 
 /** GitHub's single-select colors, mapped onto theme-friendly dot classes. */
 const COLUMN_DOT: Record<string, string> = {
@@ -51,10 +52,10 @@ function useBoard(filter: string | null, groupBy: string | null) {
       requestId.current = id;
       setBusy(true);
       const call = refresh ? "board_refresh" : "board_get";
-      // Omit the filter entirely until one is chosen: an empty string is a
-      // valid filter meaning "everything", so sending it would suppress the
-      // configured default instead of asking for it.
-      rpc.call(call, { ...(filter === null ? {} : { filter }), groupBy }).then(
+      // filterPayload omits the key until a filter is chosen: an empty string
+      // is a valid filter meaning "everything", so sending it would suppress
+      // the configured default instead of asking for it.
+      rpc.call(call, { ...filterPayload(filter), groupBy }).then(
         (result) => {
           if (requestId.current !== id) return;
           setState(result);

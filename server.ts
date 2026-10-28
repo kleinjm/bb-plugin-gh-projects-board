@@ -18,6 +18,7 @@ import {
   type ProjectBoard,
 } from "./src/github/projects.js";
 import { buildBoard, NO_STATUS, type BuiltBoard } from "./src/board.js";
+import { resolveFilter } from "./src/filter-contract.js";
 
 // --- wire schemas -----------------------------------------------------------
 
@@ -358,9 +359,17 @@ export default async function plugin(bb: BbPluginApi) {
 
   bb.rpc.register(rpcContract, {
     board_get: (input) =>
-      getState(input?.filter ?? defaultFilter, input?.groupBy ?? null, false),
+      getState(
+        resolveFilter(input?.filter, defaultFilter),
+        input?.groupBy ?? null,
+        false,
+      ),
     board_refresh: (input) =>
-      getState(input?.filter ?? defaultFilter, input?.groupBy ?? null, true),
+      getState(
+        resolveFilter(input?.filter, defaultFilter),
+        input?.groupBy ?? null,
+        true,
+      ),
     projects_list: async ({ owner: login }) => {
       const kind = await ownerKindFor(login);
       const projects = await listProjects(kind, login, { tokenFile });
