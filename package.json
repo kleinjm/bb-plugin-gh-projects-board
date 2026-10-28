@@ -10,7 +10,7 @@
     "name": "GitHub Projects Board",
     "description": "See your GitHub Projects v2 board in BB: columns from the project's own Status field, in its own order, with GitHub's filter syntax.",
     "branding": {
-      "icon": "Columns3"
+      "icon": "Github"
     },
     "server": "./server.ts",
     "app": "./app.tsx"

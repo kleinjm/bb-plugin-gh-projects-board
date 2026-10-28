@@ -202,24 +202,44 @@ function Notice({
   );
 }
 
+/** Quick filters offered above the board. "mine" is the configured default. */
+type QuickFilter = "mine" | "all" | "custom";
+
 function BoardPage() {
   const [filterInput, setFilterInput] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const [groupBy, setGroupBy] = useState<string | null>(null);
+  // My Tasks is what the page opens on; the server supplies its query.
+  const [quick, setQuick] = useState<QuickFilter>("mine");
+  const [myTasksFilter, setMyTasksFilter] = useState<string | null>(null);
   const { state, error, busy, reload } = useBoard(filter, groupBy);
 
-  // The first response carries the configured default filter; adopt it once so
-  // the box is not empty before the user has typed anything.
+  // The first response carries the configured default filter. Adopt it as the
+  // My Tasks query and apply it, so the page opens on My Tasks rather than on
+  // an empty box.
   useEffect(() => {
-    if (filterInput === null && state !== null) {
+    if (myTasksFilter === null && state !== null) {
+      setMyTasksFilter(state.filter);
       setFilterInput(state.filter);
       setFilter(state.filter);
     }
-  }, [filterInput, state]);
+  }, [myTasksFilter, state]);
+
+  const selectQuick = (next: Exclude<QuickFilter, "custom">) => {
+    const query = next === "mine" ? (myTasksFilter ?? "") : "";
+    setQuick(next);
+    setFilterInput(query);
+    setFilter(query);
+  };
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setFilter(filterInput ?? "");
+    const next = filterInput ?? "";
+    setFilter(next);
+    // Typing the My Tasks query by hand should still light up its toggle.
+    setQuick(
+      next === (myTasksFilter ?? "") ? "mine" : next === "" ? "all" : "custom",
+    );
   };
 
   const fetchedAt = useMemo(() => {
@@ -231,6 +251,45 @@ function BoardPage() {
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
       <div className="border-b border-border px-4 py-3 md:px-5">
+        <div className="mb-2 flex items-center gap-1">
+          <div
+            role="tablist"
+            aria-label="Quick filters"
+            className="flex items-center gap-1 rounded-lg border border-border bg-muted/40 p-0.5"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={quick === "mine"}
+              onClick={() => selectQuick("mine")}
+              className={cn(
+                "rounded-md px-2.5 py-1 text-xs transition-colors",
+                quick === "mine"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              My Tasks
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={quick === "all"}
+              onClick={() => selectQuick("all")}
+              className={cn(
+                "rounded-md px-2.5 py-1 text-xs transition-colors",
+                quick === "all"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              All items
+            </button>
+          </div>
+          {quick === "custom" ? (
+            <span className="text-xs text-muted-foreground">Custom filter</span>
+          ) : null}
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <form onSubmit={submit} className="flex min-w-0 flex-1 items-center gap-2">
             <Input
@@ -326,7 +385,7 @@ export default definePluginApp((app) => {
   app.slots.navPanel({
     id: "board",
     title: "Projects board",
-    icon: "Columns3",
+    icon: "Github",
     path: "board",
     component: BoardPage,
   });
