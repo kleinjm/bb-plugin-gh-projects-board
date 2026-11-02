@@ -3,6 +3,8 @@
 Shows a GitHub Projects v2 board inside BB, with columns taken from the
 project's own Status field in the project's own order, and GitHub's filter
 syntax for saved views such as `assignee:@me -status:Done!`.
+Filters are evaluated by GitHub, including comma-separated values such as
+`status:"In Progress","Done!"` and organization or project custom fields.
 
 Reads through the machine's signed-in `gh` CLI and stores no token. Needs a
 token that can read Projects — a classic token with `read:project` is the

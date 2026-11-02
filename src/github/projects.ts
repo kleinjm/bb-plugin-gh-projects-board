@@ -40,6 +40,7 @@ export const projectSchema = z.object({
   url: z.string(),
   closed: z.boolean(),
   shortDescription: z.string().nullish(),
+  items: z.object({ totalCount: z.number().int().nonnegative() }),
   fields: z.object({ nodes: z.array(fieldSchema.nullable()) }),
 });
 
@@ -147,7 +148,14 @@ export interface ProjectBoard {
   statusField: { id: string; name: string; options: SingleSelectOption[] } | null;
   /** Every single-select field, so the UI can offer a different grouping. */
   singleSelectFields: { id: string; name: string; options: SingleSelectOption[] }[];
+  /** Unarchived items in the project before applying the query. */
+  itemCount: number;
   items: BoardItem[];
+}
+
+export interface ProjectReadOptions extends GhRunOptions {
+  /** GitHub evaluates this query, including custom fields and @me. */
+  filter?: string;
 }
 
 export interface ProjectRef {
@@ -281,21 +289,16 @@ export async function fetchProjectFields(
     url: project.url,
     closed: project.closed,
     description: project.shortDescription ?? null,
+    itemCount: project.items.totalCount,
     statusField,
     singleSelectFields,
   };
 }
 
-/**
- * Read every item in the project, following cursors.
- *
- * A board of a few thousand items is a handful of sequential requests; there is
- * no way to filter server-side on a Projects v2 field, so filtering happens
- * once the items are in hand.
- */
+/** Read every item matching GitHub's query, following cursors. */
 export async function fetchProjectItems(
   ref: ProjectRef,
-  options: GhRunOptions = {},
+  options: ProjectReadOptions = {},
 ): Promise<BoardItem[]> {
   const items: BoardItem[] = [];
   let cursor: string | null = null;
@@ -305,7 +308,13 @@ export async function fetchProjectItems(
 
     const data: unknown = await graphql(
       projectItemsQuery(ref.ownerKind),
-      { login: ref.login, number: ref.number, first: PAGE_SIZE, cursor },
+      {
+        login: ref.login,
+        number: ref.number,
+        first: PAGE_SIZE,
+        cursor,
+        filter: options.filter ?? "",
+      },
       options,
     );
     const owner = unwrap(data, ref.ownerKind) as { projectV2?: { items?: unknown } };
@@ -329,7 +338,7 @@ export async function fetchProjectItems(
 /** Fields and items together. */
 export async function fetchProjectBoard(
   ref: ProjectRef,
-  options: GhRunOptions = {},
+  options: ProjectReadOptions = {},
 ): Promise<ProjectBoard> {
   const fields = await fetchProjectFields(ref, options);
   const items = await fetchProjectItems(ref, options);
