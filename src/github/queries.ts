@@ -18,6 +18,7 @@ query($login: String!, $number: Int!) {
       url
       closed
       shortDescription
+      items(first: 1) { totalCount }
       fields(first: 50) {
         nodes {
           __typename
@@ -37,10 +38,10 @@ query($login: String!, $number: Int!) {
 /** One page of project items with everything a card needs. */
 export function projectItemsQuery(owner: OwnerKind): string {
   return `
-query($login: String!, $number: Int!, $first: Int!, $cursor: String) {
+query($login: String!, $number: Int!, $first: Int!, $cursor: String, $filter: String!) {
   ${owner}(login: $login) {
     projectV2(number: $number) {
-      items(first: $first, after: $cursor) {
+      items(first: $first, after: $cursor, query: $filter) {
         pageInfo { hasNextPage endCursor }
         nodes {
           id

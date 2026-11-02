@@ -7,7 +7,6 @@
 import { checkAuth } from "./github/cli.js";
 import {
   fetchProjectBoard,
-  fetchViewerLogin,
   resolveOwnerKind,
 } from "./github/projects.js";
 import { buildBoard } from "./board.js";
@@ -34,18 +33,15 @@ async function main(): Promise<number> {
   }
 
   const ownerKind = await resolveOwnerKind(login);
-  const viewerLogin = await fetchViewerLogin();
-  const project = await fetchProjectBoard({ ownerKind, login, number });
+  const project = await fetchProjectBoard({ ownerKind, login, number }, { filter });
   const board = buildBoard(project, {
-    filter,
-    viewerLogin,
     includeEmptyColumns: false,
   });
 
   const lines = [
     `${board.title}  (${ownerKind} ${login}, #${number})`,
     `signed in as ${auth.login}; grouped by ${board.groupedBy ?? "nothing"}`,
-    `${project.items.length} items in project, ${board.total} match ${
+    `${project.itemCount} items in project, ${board.total} match ${
       filter === "" ? "(no filter)" : JSON.stringify(filter)
     }`,
     "",

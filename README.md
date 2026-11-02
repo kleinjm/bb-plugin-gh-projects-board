@@ -17,7 +17,9 @@ managing it. This plugin reads the project itself.
   defines, with each option's description under the heading — the same layout
   you see on github.com.
 - **GitHub's filter syntax**, so a view like `assignee:@me -status:Done!`
-  behaves the way it does on GitHub. `@me` resolves to the signed-in account.
+  behaves the way it does on GitHub. Queries are evaluated by GitHub, including
+  comma-separated alternatives such as `status:"In Progress","Done!"`,
+  negation, comparisons, and custom fields. `@me` resolves to the signed-in account.
 - **Any single-select field as the grouping**, not just Status.
 - **Cards showing** the `repo #number` reference, title, labels, assignees,
   issue type and milestone.
@@ -96,19 +98,20 @@ npx tsx src/cli-check.ts my-org 1 "assignee:@me -status:Done!"
 | `src/github/cli.ts` | `gh` wrapper, GraphQL transport, typed auth and scope errors |
 | `src/github/queries.ts` | GraphQL documents, generated per owner kind |
 | `src/github/projects.ts` | Zod schemas, cursor pagination, item flattening |
-| `src/board.ts` | Column grouping and the filter parser |
+| `src/board.ts` | Column grouping of GitHub's filtered results |
 | `src/filter-contract.ts` | The omitted-vs-empty filter rule both sides share |
-| `test/` | Unit tests for the parser, grouping and filter contract |
+| `test/` | Tests for grouping, native queries, caching and the filter contract |
 | `src/cli-check.ts` | Development harness |
 
 ## Notes and limits
 
-- Projects v2 has **no server-side filtering on field values**, so the plugin
-  reads every item and filters locally. A project of a few thousand items is a
-  handful of sequential requests.
+- Filters are sent unchanged to GitHub's Projects v2 `items(query: ...)` API.
+  Only matching items are downloaded, following pagination. See
+  [GitHub's filter documentation](https://docs.github.com/en/issues/planning-and-tracking-with-projects/customizing-views-in-your-project/filtering-projects).
+- Query results are cached separately for each project, filter, and signed-in
+  account. Refreshing clears the project's cached queries and notifies open
+  boards to reload. The item count still shows the unfiltered project total.
 - Archived items are skipped.
-- An unknown filter key matches nothing rather than everything, so a typo shows
-  an empty board instead of silently ignoring the term.
 - Changing a card's status is deliberately not implemented yet: it needs
   `updateProjectV2ItemFieldValue` and a write scope, and read-only is the safer
   first release.

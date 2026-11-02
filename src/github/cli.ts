@@ -197,9 +197,9 @@ export async function runGh(
 /**
  * Run a GraphQL query and return the raw `data` object.
  *
- * Variables are passed with `-F` so `gh` sends them as typed JSON rather than
- * interpolating them into the query text. Nothing user-supplied is ever
- * concatenated into a query string.
+ * Strings use `-f` so filters such as `123`, `true`, or `@something` stay
+ * literal strings rather than becoming typed JSON or file references. Other
+ * variables use `-F` for typed JSON; none are interpolated into the document.
  */
 export async function graphql(
   query: string,
@@ -209,8 +209,7 @@ export async function graphql(
   const args = ["api", "graphql", "-f", `query=${query}`];
   for (const [key, value] of Object.entries(variables)) {
     if (value === null) continue;
-    // -F gives us typed values (numbers stay numbers); -f would stringify.
-    args.push("-F", `${key}=${String(value)}`);
+    args.push(typeof value === "string" ? "-f" : "-F", `${key}=${String(value)}`);
   }
 
   const stdout = await runGh(args, options);

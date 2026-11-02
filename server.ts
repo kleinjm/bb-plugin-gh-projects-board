@@ -4,9 +4,8 @@
 // and serves it to three surfaces: the board page (app.tsx, over RPC), the
 // `bb gh-projects-board` CLI, and the skill that tells agents how to use it.
 //
-// Project items are cached in bb.storage.kv so opening the page is instant; a
-// background service refreshes them, and any refresh publishes a realtime
-// signal so every open page updates.
+// Query results are cached in SQLite per project, filter, and signed-in user.
+// Refreshing invalidates other queries and notifies every open board page.
 import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { checkAuth, GhProjectScopeError } from "./src/github/cli.js";
@@ -124,7 +123,8 @@ const cacheSchema = z.object({
   owner: z.string(),
   projectNumber: z.number().int(),
   fetchedAt: z.string(),
-  viewerLogin: z.string().nullable(),
+  viewerLogin: z.string(),
+  filter: z.string(),
   project: z.custom<ProjectBoard>(() => true),
 });
 type Cache = z.infer<typeof cacheSchema>;
@@ -207,22 +207,29 @@ export default async function plugin(bb: BbPluginApi) {
   }
 
   // A real board serializes to roughly a megabyte, well past the 256KB kv
-  // ceiling, so the cache lives in the plugin's own SQLite database as a
-  // single row of JSON.
+  // ceiling, so each query result lives in the plugin's SQLite database.
   const db = bb.storage.database();
   db.exec(
-    `CREATE TABLE IF NOT EXISTS board_cache (
-       id INTEGER PRIMARY KEY CHECK (id = 1),
+    `CREATE TABLE IF NOT EXISTS board_query_cache (
        owner TEXT NOT NULL,
        project_number INTEGER NOT NULL,
-       payload TEXT NOT NULL
+       viewer_login TEXT NOT NULL,
+       filter TEXT NOT NULL,
+       payload TEXT NOT NULL,
+       PRIMARY KEY (owner, project_number, viewer_login, filter)
      )`,
   );
+  let cacheGeneration = 0;
 
-  function readCache(): Cache | null {
+  function readCache(filter: string, viewerLogin: string): Cache | null {
     const row = db
-      .prepare("SELECT payload FROM board_cache WHERE id = 1")
-      .get() as { payload: string } | undefined;
+      .prepare(
+        `SELECT payload FROM board_query_cache
+         WHERE owner = ? AND project_number = ? AND viewer_login = ? AND filter = ?`,
+      )
+      .get(owner, projectNumber, viewerLogin, filter) as
+      | { payload: string }
+      | undefined;
     if (row === undefined) return null;
     let raw: unknown;
     try {
@@ -235,38 +242,70 @@ export default async function plugin(bb: BbPluginApi) {
     // A changed target makes the cache meaningless.
     if (parsed.data.owner !== owner) return null;
     if (parsed.data.projectNumber !== projectNumber) return null;
+    if (parsed.data.viewerLogin !== viewerLogin) return null;
+    if (parsed.data.filter !== filter) return null;
     return parsed.data;
   }
 
   function writeCache(cache: Cache): void {
     db.prepare(
-      `INSERT INTO board_cache (id, owner, project_number, payload)
-       VALUES (1, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         owner = excluded.owner,
-         project_number = excluded.project_number,
+      `INSERT INTO board_query_cache (owner, project_number, viewer_login, filter, payload)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(owner, project_number, viewer_login, filter) DO UPDATE SET
          payload = excluded.payload`,
-    ).run(cache.owner, cache.projectNumber, JSON.stringify(cache));
+    ).run(
+      cache.owner,
+      cache.projectNumber,
+      cache.viewerLogin,
+      cache.filter,
+      JSON.stringify(cache),
+    );
   }
 
-  async function fetchAndCache(signal?: AbortSignal): Promise<Cache> {
+  function invalidateCache(): void {
+    cacheGeneration += 1;
+    db.prepare(
+      "DELETE FROM board_query_cache WHERE owner = ? AND project_number = ?",
+    ).run(owner, projectNumber);
+  }
+
+  async function fetchAndCache(
+    filter: string,
+    viewerLogin: string,
+    signal?: AbortSignal,
+  ): Promise<Cache> {
+    const generation = cacheGeneration;
     const ownerKind = await ownerKindFor(owner, signal);
-    const viewerLogin = await fetchViewerLogin({ signal, tokenFile }).catch(
-      () => null,
-    );
     const project = await fetchProjectBoard(
       { ownerKind, login: owner, number: projectNumber },
-      { signal, tokenFile },
+      { signal, tokenFile, filter },
     );
     const cache: Cache = {
       owner,
       projectNumber,
       fetchedAt: new Date().toISOString(),
       viewerLogin,
+      filter,
       project,
     };
-    writeCache(cache);
-    bb.realtime.publish(BOARD_CHANGED, { itemCount: project.items.length });
+    // A read started before refresh must not repopulate the invalidated cache.
+    if (generation === cacheGeneration) writeCache(cache);
+    return cache;
+  }
+
+  async function refreshCache(
+    filter: string,
+    viewerLogin: string,
+    signal?: AbortSignal,
+  ): Promise<Cache> {
+    invalidateCache();
+    const generation = cacheGeneration;
+    const cache = await fetchAndCache(filter, viewerLogin, signal);
+    if (generation === cacheGeneration) {
+      bb.realtime.publish(BOARD_CHANGED, {
+        itemCount: cache.project.itemCount,
+      });
+    }
     return cache;
   }
 
@@ -297,9 +336,7 @@ export default async function plugin(bb: BbPluginApi) {
     groupBy: string | null,
   ): BoardState {
     const built: BuiltBoard = buildBoard(cache.project, {
-      filter,
       groupBy: groupBy ?? undefined,
-      viewerLogin: cache.viewerLogin,
       includeEmptyColumns: !(config.hideEmptyColumns ?? true),
     });
 
@@ -315,7 +352,7 @@ export default async function plugin(bb: BbPluginApi) {
       groupableFields: cache.project.singleSelectFields.map(
         (field) => field.name,
       ),
-      itemCount: cache.project.items.length,
+      itemCount: cache.project.itemCount,
       viewerLogin: cache.viewerLogin,
       fetchedAt: cache.fetchedAt,
       problem: null,
@@ -341,9 +378,11 @@ export default async function plugin(bb: BbPluginApi) {
       );
     }
     try {
+      const viewerLogin = await fetchViewerLogin({ signal, tokenFile });
       const cache = refresh
-        ? await fetchAndCache(signal)
-        : (readCache() ?? (await fetchAndCache(signal)));
+        ? await refreshCache(filter, viewerLogin, signal)
+        : (readCache(filter, viewerLogin) ??
+          (await fetchAndCache(filter, viewerLogin, signal)));
       return present(cache, filter, groupBy);
     } catch (error) {
       bb.log.warn(`board read failed: ${String(error)}`);
@@ -542,22 +581,22 @@ export default async function plugin(bb: BbPluginApi) {
       async start(signal) {
         while (!signal.aborted) {
           try {
-            await fetchAndCache(signal);
+            const viewerLogin = await fetchViewerLogin({ signal, tokenFile });
+            await refreshCache(defaultFilter, viewerLogin, signal);
           } catch (error) {
             if (signal.aborted) return;
             bb.log.warn(`background refresh failed: ${String(error)}`);
           }
+          if (signal.aborted) return;
           // Must wake on abort, or a reload reports "service did not stop".
           await new Promise<void>((resolve) => {
-            const timer = setTimeout(resolve, intervalMs);
-            signal.addEventListener(
-              "abort",
-              () => {
-                clearTimeout(timer);
-                resolve();
-              },
-              { once: true },
-            );
+            const wake = () => {
+              clearTimeout(timer);
+              signal.removeEventListener("abort", wake);
+              resolve();
+            };
+            const timer = setTimeout(wake, intervalMs);
+            signal.addEventListener("abort", wake, { once: true });
           });
         }
       },

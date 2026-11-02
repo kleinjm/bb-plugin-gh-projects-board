@@ -1,7 +1,7 @@
-// The filter parser and column grouping.
+// Grouping the items returned by GitHub.
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildBoard, itemMatches, parseFilter, NO_STATUS } from "../src/board.js";
+import { buildBoard, NO_STATUS } from "../src/board.js";
 import type { BoardItem, ProjectBoard } from "../src/github/projects.js";
 
 function item(overrides: Partial<BoardItem> = {}): BoardItem {
@@ -28,120 +28,6 @@ function item(overrides: Partial<BoardItem> = {}): BoardItem {
   };
 }
 
-const ME = "kleinjm";
-const mine = [{ login: ME, avatarUrl: null }];
-
-describe("parseFilter", () => {
-  it("reads key:value terms", () => {
-    const parsed = parseFilter("assignee:kleinjm status:QA");
-    assert.deepEqual(parsed.terms, [
-      { key: "assignee", value: "kleinjm", negated: false },
-      { key: "status", value: "QA", negated: false },
-    ]);
-    assert.deepEqual(parsed.words, []);
-  });
-
-  it("reads a leading - as negation", () => {
-    assert.deepEqual(parseFilter("-status:Done!").terms, [
-      { key: "status", value: "Done!", negated: true },
-    ]);
-  });
-
-  it("keeps quoted values whole", () => {
-    assert.deepEqual(parseFilter('iteration:"Sprint 4"').terms, [
-      { key: "iteration", value: "Sprint 4", negated: false },
-    ]);
-    assert.deepEqual(parseFilter("label:'needs design'").terms, [
-      { key: "label", value: "needs design", negated: false },
-    ]);
-  });
-
-  it("lowercases keys but preserves value case", () => {
-    assert.deepEqual(parseFilter("Status:In Progress").terms[0], {
-      key: "status",
-      value: "In",
-      negated: false,
-    });
-  });
-
-  it("collects bare words for title matching", () => {
-    const parsed = parseFilter("memory leak status:QA");
-    assert.deepEqual(parsed.words, ["memory", "leak"]);
-    assert.equal(parsed.terms.length, 1);
-  });
-
-  it("parses the saved view this plugin opens on", () => {
-    const parsed = parseFilter("assignee:@me -status:Done!");
-    assert.deepEqual(parsed.terms, [
-      { key: "assignee", value: "@me", negated: false },
-      { key: "status", value: "Done!", negated: true },
-    ]);
-  });
-
-  it("returns nothing for an empty filter", () => {
-    assert.deepEqual(parseFilter(""), { terms: [], words: [] });
-  });
-});
-
-describe("itemMatches", () => {
-  const match = (filter: string, candidate: BoardItem) =>
-    itemMatches(candidate, parseFilter(filter), ME);
-
-  it("resolves @me to the signed-in login", () => {
-    assert.equal(match("assignee:@me", item({ assignees: mine })), true);
-    assert.equal(
-      match("assignee:@me", item({ assignees: [{ login: "other", avatarUrl: null }] })),
-      false,
-    );
-  });
-
-  it("matches a project field by name, ignoring case", () => {
-    const candidate = item({ singleSelect: { Status: "In Progress" } });
-    assert.equal(match("status:In Progress", candidate), false, "value is not quoted");
-    assert.equal(match('status:"In Progress"', candidate), true);
-    assert.equal(match('STATUS:"in progress"', candidate), true);
-  });
-
-  it("excludes on a negated term", () => {
-    const done = item({ assignees: mine, singleSelect: { Status: "Done!" } });
-    const todo = item({ assignees: mine, singleSelect: { Status: "Todo" } });
-    assert.equal(match("assignee:@me -status:Done!", done), false);
-    assert.equal(match("assignee:@me -status:Done!", todo), true);
-  });
-
-  it("treats an item with no value for a field as not matching it", () => {
-    const none = item({ assignees: mine });
-    assert.equal(match("status:Todo", none), false);
-    // …and therefore as surviving the negation, which is what puts unstatused
-    // items on a `-status:Done!` board.
-    assert.equal(match("-status:Done!", none), true);
-  });
-
-  it("matches an unknown key against nothing, so a typo is visible", () => {
-    assert.equal(match("assigne:@me", item({ assignees: mine })), false);
-  });
-
-  it("matches bare words against the title, case-insensitively", () => {
-    const candidate = item({ title: "Production memory growth" });
-    assert.equal(match("MEMORY", candidate), true);
-    assert.equal(match("memory growth", candidate), true);
-    assert.equal(match("memory absent", candidate), false);
-  });
-
-  it("matches labels and repository", () => {
-    const candidate = item({
-      labels: [{ name: "bug", color: null }],
-      repository: "web",
-    });
-    assert.equal(match("label:bug repo:web", candidate), true);
-    assert.equal(match("label:chore", candidate), false);
-  });
-
-  it("matches everything when the filter is empty", () => {
-    assert.equal(match("", item()), true);
-  });
-});
-
 function project(items: BoardItem[]): ProjectBoard {
   const field = {
     id: "f",
@@ -161,6 +47,7 @@ function project(items: BoardItem[]): ProjectBoard {
     description: null,
     statusField: field,
     singleSelectFields: [field],
+    itemCount: items.length,
     items,
   };
 }
@@ -222,18 +109,6 @@ describe("buildBoard", () => {
     );
     const retired = board.columns.find((column) => column.name === "Retired");
     assert.equal(retired?.items.length, 1);
-  });
-
-  it("applies the filter before grouping", () => {
-    const board = buildBoard(
-      project([
-        item({ itemId: "a", assignees: mine, singleSelect: { Status: "Todo" } }),
-        item({ itemId: "b", singleSelect: { Status: "Todo" } }),
-      ]),
-      { filter: "assignee:@me", viewerLogin: ME, includeEmptyColumns: false },
-    );
-    assert.equal(board.total, 1);
-    assert.equal(board.columns[0].items[0].itemId, "a");
   });
 
   it("falls back to a single column when the project has no select field", () => {
